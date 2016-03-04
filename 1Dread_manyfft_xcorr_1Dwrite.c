@@ -1,7 +1,4 @@
-/*  
- *  This example writes data to the HDF5 file by rows.
- *  Number of processes is assumed to be 1 or multiples of 2 (up to 8)
- */
+
 #include "stdlib.h"
 #include "stdbool.h"
 #include <complex.h> 
