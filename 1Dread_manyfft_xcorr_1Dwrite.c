@@ -74,6 +74,8 @@ main (int argc, char **argv)
     int set = 1;
     int max_size = 0;
     int sec_max_size = 0;
+    int length_fft;
+    int signal_num;
 
     /*
      * MPI variables
@@ -282,8 +284,8 @@ main (int argc, char **argv)
     
      
    
-   int length_fft = n0;
-   int signal_num = howmany;
+   length_fft = n0;
+   signal_num = howmany;
    howmany = num_xcorr;
    
    n0 = n0*num_xcorr;
