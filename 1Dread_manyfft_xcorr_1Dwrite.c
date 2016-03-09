@@ -76,6 +76,7 @@ main (int argc, char **argv)
     int sec_max_size = 0;
     int length_fft;
     int signal_num;
+    bool is_data_read = true;
 
     /*
      * MPI variables
@@ -107,6 +108,11 @@ main (int argc, char **argv)
     status = H5Gget_num_objs(file_id, &num_obj);
     printf("num_obj is : %d \n", (int) num_obj);
     obj_idx = 0;
+
+
+
+
+/*******************************************************************************************/
     //dataset_id = (hid_t*) malloc(num_obj*sizeof(hid_t))
     while(obj_idx < num_obj)
     {
@@ -119,6 +125,9 @@ main (int argc, char **argv)
       obj_idx++;
     }
 
+
+
+/******************************************************************************************/
     /* Loop to determine the biggest dataset size to determine the number of zeros to be appended to each signal before the FFT*/
     /* an alternative is set a maximum length for correlation and extend each signal to tat length */
     for(i=0;i<num_dataset_obj; i++) // NB this loop can be removed and the code written inside the while loop above
@@ -152,6 +161,7 @@ main (int argc, char **argv)
     
     /* get local data size and allocate */
     howmany =num_dataset_obj;
+    printf("MPI size : %d \n", mpi_size);
     n0 = max_size+sec_max_size;  // here data_size[0] should be replaced by the maximum of datasize array elements
     dataset_per_proc=(n0/mpi_size)+0.5;   
     printf("dataset_per_proc : %d \n", (int) dataset_per_proc);
@@ -184,13 +194,17 @@ main (int argc, char **argv)
     
     if(iscomplex == true) set = 2;
 
+     
+
+
+    /************************************************************************************/
     for(i=0;i<num_dataset_obj; i++)
     { 
 	   //if(i=0) data = fftw_alloc_complex(alloc_local);
  
           /*Create the filespace/dataset hyperslab*/
           printf("dataset[%d] size is %d \n",i,(int) dataset_size[i]);
-          if(local_i_start + local_ni < dataset_size[i])
+          if(local_i_start + local_ni <= dataset_size[i])
 	  {                               
          	offset[0]=mpi_rank*local_ni*set;// starting offset is multiplied by two because each complex number is two values
           	offset[1]=0;
@@ -198,7 +212,8 @@ main (int argc, char **argv)
 	  	count[1] = 1;
 		block[0]= set; //each block of 2 values represents one complex number
                 block[1] = 1;
-	        status = H5Sselect_hyperslab(filespace[i],H5S_SELECT_SET,offset,NULL,count,block);	
+	        status = H5Sselect_hyperslab(filespace[i],H5S_SELECT_SET,offset,NULL,count,block);
+                is_data_read = true;	
 	  }
 	  
 	  if(local_i_start < dataset_size[i] && local_i_start + local_ni > dataset_size[i])
@@ -209,38 +224,45 @@ main (int argc, char **argv)
 	  	count[1] = 1;
 		block[0]= set; //each block of 2 values represents one complex number
                 block[1] = 1;
-                status = H5Sselect_hyperslab(filespace[i],H5S_SELECT_SET,offset,NULL,count,block);	
+                status = H5Sselect_hyperslab(filespace[i],H5S_SELECT_SET,offset,NULL,count,block);
+                is_data_read = true;	
 	  }
 		
-	  if(local_i_start > dataset_size[i]) //all zeros
+	  if(local_i_start >= dataset_size[i]) //all zeros
 	  {
 	       for(j=0;j<local_ni; j++)
     	       {
-		  dset_data[i]= 0.0;
+		  data[i]= 0.0;
 	       }
+               
+               is_data_read = false;
 
 	  }
           
-          printf("count[0] : %llu \n", count[0]);
+          printf("process %d, dataset %d,count[0] : %llu \n", mpi_rank, i, count[0]);
           
           /*Create the memory hyperslab to transfer data from the currently opened dataset*/   
 
-          offset[0]= i*2; //i is the index of the dataset object if a list containing only dataset objects existed 
-          offset[1] = 0;
-          stride[0]= num_dataset_obj*2;
-          stride[1] = 1;
-          block[0]= 1; //each block of 2 values represents one complex number
-          block[1] = 1;
+          if (is_data_read)
+	  {
+	     offset[0]= i*2; //i is the index of the dataset object if a list containing only dataset objects existed 
+             offset[1] = 0;
+             stride[0]= num_dataset_obj*2;
+             stride[1] = 1;
+             block[0]= 1; //each block of 2 values represents one complex number
+             block[1] = 1;
           
-          status = H5Sselect_hyperslab(memspace,H5S_SELECT_SET,offset,stride,count,block);
+             status = H5Sselect_hyperslab(memspace,H5S_SELECT_SET,offset,stride,count,block);
 
-
-          plist_id = H5Pcreate(H5P_DATASET_XFER);
-          H5Pset_dxpl_mpio(plist_id, H5FD_MPIO_COLLECTIVE);
+             
+             plist_id = H5Pcreate(H5P_DATASET_XFER);
+             H5Pset_dxpl_mpio(plist_id, H5FD_MPIO_COLLECTIVE);
       
       
-          /* Read the dataset. */
-          status = H5Dread(dataset_id[i], H5T_IEEE_F64LE, memspace, filespace[i], H5P_DEFAULT, data);
+             /* Read the dataset. */
+             status = H5Dread(dataset_id[i], H5T_IEEE_F64LE, memspace, filespace[i], H5P_DEFAULT, data);
+     	  }
+          
 
           if(mpi_rank == 0 && i == 1){
     	    for (j=0; j<10;j++){
@@ -257,7 +279,7 @@ main (int argc, char **argv)
     }
 
     /*HDF5 file read end*/
-    printf("Input  data: \n");
+    printf("process %d Input  data: \n",mpi_rank);
     //data =   dset_data;
     for (i = 0; i < 10; i++) {
          if(i<10) printf("  %f + i%f \n", creal(data[i]), cimag(data[i]));
@@ -266,8 +288,8 @@ main (int argc, char **argv)
    /* compute transforms, in-place, as many times as desired */
    fftw_execute(plan);
 
-   printf("output  data: \n");
-   if(mpi_rank == 0){
+   printf("process %d FFT output  data: \n",mpi_rank);
+   if(mpi_rank == 1){
     	for (i=0; i<10;i++){ //originally checking for 3990 - 4000 
         	printf("  %f + i%f \n", creal(data[i]), cimag(data[i]));
     	}
@@ -275,22 +297,21 @@ main (int argc, char **argv)
  
    fftw_destroy_plan(plan); 
    
-  
+  /*************************************************************************************/
    /* DFT multiply section begins*/
    for(i=0; i<howmany; i++) {
   	num_xcorr=num_xcorr+i;
-        printf("  number of correlations: %d \n", num_xcorr);
    }
     
-     
+   printf(" number of correlations: %d \n", num_xcorr); 
    
-   length_fft = n0;
+   length_fft = local_n0;
    signal_num = howmany;
    howmany = num_xcorr;
    
    n0 = n0*num_xcorr;
 
-    printf("n0 is: %d \n",(int)n0);
+    printf("process %d n0 is: %d \n",mpi_rank, (int)n0);
    /*Determine required space and allocate memory space for fft computation*/
    alloc_local = fftw_mpi_local_size_many_1d(n0, howmany, MPI_COMM_WORLD, FFTW_BACKWARD, FFTW_ESTIMATE, &local_ni, &local_i_start, &local_n0, &local_0_start);
 
@@ -300,6 +321,10 @@ main (int argc, char **argv)
    /* create plan for in-place forward DFT */
     plan2 = fftw_mpi_plan_many_dft(1, &n0, howmany,FFTW_MPI_DEFAULT_BLOCK,FFTW_MPI_DEFAULT_BLOCK, multiplied_fft, multiplied_fft, MPI_COMM_WORLD,FFTW_BACKWARD, FFTW_ESTIMATE); 
 
+
+
+
+   /**************************************************************************************************/
    int set_base_idx = 0;
    int index = 0;
    while(set_base_idx < signal_num*length_fft) //set index - begining of a signal fft group with the same index before multiplication
@@ -307,7 +332,7 @@ main (int argc, char **argv)
 	for(i=set_base_idx;i<set_base_idx+signal_num-1;i++)
 	{
 	    for(j=i+1;j<set_base_idx+signal_num; j++)
-	       multiplied_fft[index]=data[i]*data[j];
+	       multiplied_fft[index]=data[i]*conj(data[j]);
                index = index+1;
 	}
 	set_base_idx = set_base_idx+signal_num;
@@ -319,10 +344,10 @@ main (int argc, char **argv)
    
    /* DFT multiply section ends*/
 
-   printf("index is: %d \n",index);
-   printf("set base index is: %d \n",set_base_idx);
-   printf("output after fft multiplication: \n");
-   if(mpi_rank == 0){
+   printf("process %d index is: %d \n",mpi_rank, index);
+   printf("process %d set base index is: %d \n",mpi_rank,set_base_idx);
+   printf("process %d output after fft multiplication: \n", mpi_rank);
+   if(mpi_rank == 1){
     	for (i=0; i<10;i++){
         	printf("  %f + i%f \n", creal(multiplied_fft[i]), cimag(multiplied_fft[i]));
     	}
@@ -332,8 +357,8 @@ main (int argc, char **argv)
    fftw_execute(plan2);
 
    printf("output after inverse fft: \n");
-   if(mpi_rank == 0){
-    	for (i=0; i<35;i++){ //originally checking for 3990 - 4000 
+   if(mpi_rank == 1){
+    	for (i=0; i<10;i++){ //originally checking for 3990 - 4000 
         	printf("  %f + i%f \n", creal(multiplied_fft[i]), cimag(multiplied_fft[i]));
     	}
     }
@@ -345,7 +370,8 @@ main (int argc, char **argv)
     /*
      * Close/release resources.
      */
-    H5Pclose(plist_id);
+    if (is_data_read) {H5Pclose(plist_id);}
+    
     H5Fclose(file_id);
  
     MPI_Finalize();
