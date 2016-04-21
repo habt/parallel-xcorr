@@ -1,0 +1,80 @@
+#!/bin/bash
+./h5cc 1Dread_manyfft_xcorr_1Dwrite.c -o 1Dread_manyfft_xcorr_1Dwrite -lfftw3_mpi -lfftw3 -lm
+basedir='/home/pi/thesis/codes'
+inpdir='/home/pi/thesis/codes/inoutdatas'
+#may be should execute each line more than once(a few times) and take the average
+declare -a flaglocarr=(""$inpdir"/flagtest/double/" ""$inpdir"/flagtest/complex/")
+vals="dou";
+declare -a flags=("es" "me" "pa" "ex")
+for flagloc in "${flaglocarr[@]}"
+do
+    echo "$flagloc"
+    echo "$vals"
+    cd $flagloc
+    for file in *.h5;
+    do
+     	echo "File $file found"
+        for flag in "${flags[@]}";
+        do	
+                echo "Executing for $flag "
+		for numproc in `seq 1 4`;
+		do
+			for repeat in `seq 1 5`;
+   		   	do
+       				echo $numproc
+       				cd $basedir
+				mpiexec -n $numproc -f hostfile ./1Dread_manyfft_xcorr_1Dwrite fl $flag $vals $file $flagloc
+			done
+    		done
+        done    
+     
+     done 
+     vals="clx"; 
+done
+
+vals="dou";
+declare -a testid=("prn" "sle" "sno" "vss") 
+declare -a doulocarr=(""$inpdir"/procnumber/double/" ""$inpdir"/siglength/double/" ""$inpdir"/signumber/double/" ""$inpdir"/varsigsize/double/")
+
+for douloc in "${doulocarr[@]}"
+do
+    echo "Inside $douloc"
+    cd $douloc
+    for file in *.h5;
+    do	
+           echo "File $file found"
+           for numproc in `seq 1 4`;
+    	   do
+		for repeat in `seq 1 5`;
+   		do
+       			echo "With $numproc Nodes"
+       			cd $basedir
+       			mpiexec -n $numproc -f hostfile ./1Dread_manyfft_xcorr_1Dwrite nf es dou $file  $douloc
+ 		done
+           done
+    done
+    
+done
+
+vals="clx";
+declare -a clxlocarr=(""$inpdir"/procnumber/complex/" ""$inpdir"/siglength/complex/" ""$inpdir"/signumber/complex/" ""$inpdir"/varsigsize/complex/")
+for clxloc in "${clxlocarr[@]}"
+do
+    echo "Inside $clxloc"
+    cd $clxloc
+    for file in *.h5;
+    do	
+           echo "File $file found"
+           for numproc in `seq 1 4`;
+    	   do
+		for repeat in `seq 1 5`;
+   		do
+       			echo "With $numproc Nodes"
+       			cd $basedir
+       			mpiexec -n $numproc -f hostfile ./1Dread_manyfft_xcorr_1Dwrite nf es clx $file $clxloc
+		done
+           done
+    done
+    
+done
+
