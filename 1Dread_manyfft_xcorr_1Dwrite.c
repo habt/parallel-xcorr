@@ -113,7 +113,7 @@ main (int argc, char* argv[])
     
     /* Start by interpreting command line arguements*/
     
-   printf("Number of arguements is %d \n",argc);
+   printf("Number of arguments is %d \n",argc);
    
    
     sprintf(inph5_name,"%s%s", argv[5], argv[4]);
